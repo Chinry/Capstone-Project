@@ -8,13 +8,18 @@
  *      Handle the UART connection to desktop
  */
 
-#include "messaging.h"
-
-
 #ifndef CONNECTION_H_
 #define CONNECTION_H_
 
+#include "messaging.h"
+
+
+#define UART_BAUD = 115200;
+
+
 void UARTIntHandler(void);
+
+void UARTSetup(uint32_t);
 
 
 
