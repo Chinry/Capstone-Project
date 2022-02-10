@@ -10,13 +10,14 @@
 
 
 #include "fix_fft.h"
+#include "connection.h"
+
 
 #define BUF_SIZE 512
 #define SAMP_FREQ 3000
 
 int16_t fr[BUF_SIZE];
 int16_t fi[BUF_SIZE];
-
 
 int16_t samples[BUF_SIZE];
 uint32_t samples_index;
@@ -37,13 +38,18 @@ volatile unsigned short ulADC0Value;
 
 int main(void)
 {
-    samples_index = 0;
 
     //configure the system clock at which system will run
     SysCtlClockSet(SYSCTL_SYSDIV_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
 
-    //CONFIGURE ADC TIMER
+    // connection.c UART setup
+    UARTSetup(SysCtlClockGet());
 
+
+
+    samples_index = 0;
+
+    //CONFIGURE ADC TIMER
     //enable Timer 0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
 
@@ -89,6 +95,12 @@ int main(void)
 
 
 
+    // Master interrupt enable
+    IntMasterEnable();
+
+
+
+
     /*
     int i;
     for( i = 0; i < BUF_SIZE; i++)
@@ -100,9 +112,6 @@ int main(void)
     */
 
     for(;;){}
-
-
-    return 0;
 }
 
 
