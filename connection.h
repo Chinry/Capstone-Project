@@ -11,15 +11,12 @@
 #ifndef CONNECTION_H_
 #define CONNECTION_H_
 
-#include "messaging.h"
-
-
-#define UART_BAUD = 115200;
-
+#include <stdint.h>
+#include <stdbool.h>
 
 void UARTIntHandler(void);
 
-void UARTSetup(uint32_t);
+void UARTSetup(const uint32_t);
 
 
 

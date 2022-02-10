@@ -14,24 +14,16 @@
 #define MESSAGING_H_
 
 #include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
 #include <string.h>
+
 #include "inc/hw_ints.h"
 #include "inc/hw_memmap.h"
 #include "inc/hw_types.h"
 #include "inc/hw_uart.h"
-#include "driverlib/fpu.h"
-#include "driverlib/gpio.h"
+
 #include "driverlib/timer.h"
-#include "driverlib/interrupt.h"
-#include "driverlib/pin_map.h"
-#include "driverlib/debug.h"
-#include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
 #include "driverlib/uart.h"
-#include "driverlib/udma.h"
-
 
 #define MSG_ACTION_LEN = 16;
 #define MSG_DATA_LEN = 128;

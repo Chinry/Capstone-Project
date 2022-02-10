@@ -8,8 +8,17 @@
  *      Handle the UART connection to desktop
  */
 
-#include "connection.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
+#include "driverlib/gpio.h"
+#include "driverlib/pin_map.h"
+#include "driverlib/interrupt.h"
 
+#include "connection.h"
+#include "messaging.h"
+
+static const uint32_t UART_BAUD = 115200;
 static bool acceptConnections = true;
 
 // UART input received
@@ -31,7 +40,7 @@ void UARTIntHandler(void) {
 }
 
 // Enable code
-void UARTSetup(uint32_t baud) {
+void UARTSetup(const uint32_t sysclk) {
 
     acceptConnections = true;
 
@@ -42,8 +51,7 @@ void UARTSetup(uint32_t baud) {
     GPIOPinConfigure(GPIO_PA1_U0TX);
     GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
 
-    UARTConfigSetExpClk(UART0_BASE, baud, UART_BAUD, (
-            UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
+    UARTConfigSetExpClk(UART0_BASE, sysclk, UART_BAUD, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
 
     IntEnable(INT_UART0);
     UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
