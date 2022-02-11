@@ -14,11 +14,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+void UARTSetup();
+
 void UARTIntHandler(void);
 
-void UARTSetup(const uint32_t);
 
 
-
+void ConnectionTest(void);
 
 #endif /* UART_H_ */

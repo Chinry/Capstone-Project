@@ -17,12 +17,47 @@
 
 #include "connection.h"
 #include "messaging.h"
+#include "storage.h"
 
 static const uint32_t UART_BAUD = 115200;
 static bool acceptConnections = true;
 
+
+const char testKeyval[] = "wave=square ";
+
+
+
+// Enable code
+void UARTSetup() {
+
+    acceptConnections = true;
+
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+
+    GPIOPinConfigure(GPIO_PA0_U0RX);
+    GPIOPinConfigure(GPIO_PA1_U0TX);
+    GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
+
+    UARTConfigSetExpClk(UART0_BASE, SysCtlClockGet(), UART_BAUD, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
+
+    IntEnable(INT_UART0);
+    UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
+}
+
+
+// Disable code
+void UARTCleanup() {
+
+    acceptConnections = false;
+
+    IntDisable(INT_UART0);
+}
+
+
 // UART input received
 void UARTIntHandler(void) {
+
     uint32_t status;
     status = UARTIntStatus(UART0_BASE, true);
     UARTIntClear(UART0_BASE, status);
@@ -39,30 +74,12 @@ void UARTIntHandler(void) {
     }
 }
 
-// Enable code
-void UARTSetup(const uint32_t sysclk) {
-
-    acceptConnections = true;
-
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
-
-    GPIOPinConfigure(GPIO_PA0_U0RX);
-    GPIOPinConfigure(GPIO_PA1_U0TX);
-    GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
-
-    UARTConfigSetExpClk(UART0_BASE, sysclk, UART_BAUD, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
-
-    IntEnable(INT_UART0);
-    UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
+// Test connection
+void ConnectionTest(void) {
+    status_code_t code = UpdateStore(testKeyval);
 }
 
 
-// Disable code
-void UARTCleanup() {
-    acceptConnections = false;
 
-    IntDisable(INT_UART0);
-}
 
 
