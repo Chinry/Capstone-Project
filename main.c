@@ -12,11 +12,11 @@
 
 
 // Features
-//#define USE_ADC
+#define USE_ADC
 #define USE_UART
 
 // Unit tests
-#define RUN_TEST
+//#define RUN_TEST
 
 
 
@@ -67,7 +67,7 @@ int main(void) {
 
     ConnectionTest();
 
-#else
+#endif // RUN_TEST
 
 #ifdef USE_UART
 
@@ -150,7 +150,6 @@ int main(void) {
     for(;;){}
 
 #endif // USE_ADC
-#endif // RUN_TEST - else
 }
 
 
