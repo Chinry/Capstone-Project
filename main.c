@@ -10,9 +10,29 @@
 #include "driverlib/timer.h"
 #include "driverlib/interrupt.h"
 
-#include "fix_fft.h"
-#include "connection.h"
 
+// Features
+//#define USE_ADC
+#define USE_UART
+
+// Unit tests
+#define RUN_TEST
+
+
+
+// Conditional includes
+#ifdef USE_ADC
+#include "fix_fft.h"
+#endif
+
+#ifdef USE_UART
+#include "connection.h"
+#endif
+
+
+
+// ADC/DSP data
+#ifdef USE_ADC
 
 #define BUF_SIZE 512
 #define SAMP_FREQ 3000
@@ -25,6 +45,8 @@ uint32_t samples_index;
 
 volatile unsigned short ulADC0Value;
 
+#endif
+
 
 /*
  * plan
@@ -36,17 +58,26 @@ volatile unsigned short ulADC0Value;
  */
 
 
-
-int main(void)
-{
+int main(void) {
 
     //configure the system clock at which system will run
     SysCtlClockSet(SYSCTL_SYSDIV_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
 
+#ifdef RUN_TEST
+
+    ConnectionTest();
+
+#else
+
+#ifdef USE_UART
+
     // connection.c UART setup
-    UARTSetup(SysCtlClockGet());
+    UARTSetup();
+    StorageSetup();
 
+#endif
 
+#ifdef USE_ADC
 
     samples_index = 0;
 
@@ -80,6 +111,9 @@ int main(void)
     ADCSequenceConfigure(ADC0_BASE,0,ADC_TRIGGER_TIMER,0);
 
     //ADC0, sample sequencer 0, step 0, (sample channel 0, cause an interrupt when complete, configured as the last step in the sampling sequence)
+    ADCSequenceStepConfigure(ADC0_BASE,0,0,ADC_CTL_CH0);
+    ADCSequenceStepConfigure(ADC0_BASE,0,0,ADC_CTL_CH0);
+    ADCSequenceStepConfigure(ADC0_BASE,0,0,ADC_CTL_CH0);
     ADCSequenceStepConfigure(ADC0_BASE,0,0,ADC_CTL_IE|ADC_CTL_CH0|ADC_CTL_END);
 
     //trigger interrupt from timer
@@ -114,12 +148,17 @@ int main(void)
 
 
     for(;;){}
+
+#endif // USE_ADC
+#endif // RUN_TEST - else
 }
 
 
-void
-ADC0_Handler(void)
+void ADC0_Handler(void)
 {
+#ifdef USE_ADC
+    ADCIntClear(ADC0_BASE, 0);
+
     //halt until ADC is ready to be serviced
     while(!ADCIntStatus(ADC0_BASE, 0, false)){}
 
@@ -141,4 +180,7 @@ ADC0_Handler(void)
         return;
     }
     samples_index = 0;
+#endif
 }
+
+
