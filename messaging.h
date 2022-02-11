@@ -25,8 +25,20 @@
 #include "driverlib/sysctl.h"
 #include "driverlib/uart.h"
 
+
+
 #define MSG_ACTION_LEN = 16;
 #define MSG_DATA_LEN = 128;
+
+#define ACTION_PUTONE 0x00000000
+#define ACTION_PUTMANY 0x00000001
+#define ACTION_GETONE 0x00000002
+#define ACTION_GETMANY 0x00000003
+
+#define STATUS_OK 0x00000000
+#define STATUS_ERR 0x00000001
+
+
 
 // [ID] [status] [action] [length] [[key=value]...]
 // ex. 123 0 putone 1 wave=square
