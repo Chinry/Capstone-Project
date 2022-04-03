@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
+#include <limits.h>
 #include "inc/tm4c123gh6pm.h"
 #include "inc/hw_memmap.h"
 #include "inc/hw_types.h"
@@ -37,8 +38,13 @@
 int16_t fr[BUF_SIZE];
 int16_t fi[BUF_SIZE];
 
+uint32_t input_buffer[4];
 int16_t samples[BUF_SIZE];
 uint32_t samples_index;
+uint32_t sample_value;
+
+uint32_t buffer_filled = 0;
+uint32_t timer_triggers = 0;
 
 volatile unsigned short ulADC0Value;
 
@@ -76,19 +82,22 @@ int main(void) {
 
 #ifdef USE_ADC
 
-    samples_index = 0;
+    timer_triggers = 0;
 
-    uint32_t ui32Period;
+    buffer_filled = 0;
+    samples_index = 0;
+    sample_value = 0;
+
+    uint32_t ui32Period = SysCtlClockGet() / 8000;
 
     // CONFIGURE ADC TIMER
     // Enable Timer 0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
 
     // Set as a full width periodic timer
-    TimerConfigure(TIMER0_BASE, TIMER_CFG_A_PERIODIC);
+    TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
 
     // Set to timer A when using full width, set the load value to 3000
-    ui32Period = SysCtlClockGet() / 10;
     TimerLoadSet(TIMER0_BASE, TIMER_A, ui32Period);
 
     // Timer 0, Timer A, trigger the ADC
@@ -111,7 +120,7 @@ int main(void) {
     ADCReferenceSet(ADC0_BASE, ADC_REF_INT);
 
     // ADC0, sample sequencer 0, triggered explicitly by processor, priority low 3 -> high 0
-    //ADCSequenceConfigure(ADC0_BASE,0,ADC_TRIGGER_TIMER,0);
+    //ADCSequenceConfigure(ADC0_BASE, 0, ADC_TRIGGER_TIMER, 0);
     ADCSequenceConfigure(ADC0_BASE, 1, ADC_TRIGGER_PROCESSOR, 0);
 
     //ADC0, sample sequencer 0, step 0, (sample channel 0, cause an interrupt when complete, configured as the last step in the sampling sequence)
@@ -123,6 +132,7 @@ int main(void) {
     // Set up sequence 0 to be able to be triggered
     ADCSequenceEnable(ADC0_BASE, 1);
 
+
     // Trigger interrupt from timer
     //ADCIntEnableEx(ADC0_BASE, ADC_INT_SS0);
 
@@ -132,67 +142,81 @@ int main(void) {
     // Master interrupt enable
     IntMasterEnable();
 
-
-    /*
-    int i;
-    for( i = 0; i < BUF_SIZE; i++)
-    {
-        fr[i] = (int16_t)(30000 * sin(((2 * M_PI) / 45) * i));
-        fi[i] = 0;
-    }
-    int scale  = fix_fft(fr, fi, 9, 0);
-    */
-
-
-
+    // Main execution
     while(1) {
-//        ADCIntClear(ADC0_BASE, 1);
-//        ADCProcessorTrigger(ADC0_BASE, 1);
 
-        while (!ADCIntStatus(ADC0_BASE, 1, false)) {}
+        // wait for ADC
+        while (!ADCIntStatus(ADC0_BASE, 1, false)) {
 
-        uint32_t immediate_value;
+            // continuous analysis of the buffer
+            // buffer is full and ready to be processed
+            if (buffer_filled) {
 
-        ADCSequenceDataGet(ADC0_BASE, 1, &immediate_value);
+                // copy in circular buffer contents to fft buffer
+                int i, j;
+                for (i = 0; i < BUF_SIZE; i++) {
+                    j = i + samples_index;
+                    if (j >= BUF_SIZE) {
+                        j -= BUF_SIZE;
+                    }
+                    fr[i] = samples[j];
+                    fi[i] = 0;
+                }
 
-        //convert unsigned 32bit to signed 16bit
-        int32_t tmp = immediate_value + 0x10000000;
-        //store into circular buffer
-        samples[samples_index] = (int16_t)(tmp >> 16);
+                fix_fft(fr, fi, 9, 0);
+            }
+        }
 
-        //advance buffer write index
+        // clear ADC
+        ADCIntClear(ADC0_BASE, 1);
+
+        //uint32_t immediate_value;
+
+        ADCSequenceDataGet(ADC0_BASE, 1, input_buffer);
+        sample_value = (input_buffer[0] + input_buffer[1] + input_buffer[2] + input_buffer[3]) / 4;
+        sample_value = sample_value << 4;
+        samples[samples_index] = SHRT_MIN + (int16_t) sample_value;
+
+//        //convert unsigned 32bit to signed 16bit
+//        int32_t tmp = immediate_value + 0x10000000;
+//        //store into circular buffer
+//        samples[samples_index] = (int16_t)(tmp >> 16);
+
+        // rotate
         if (samples_index < BUF_SIZE)
         {
-            samples_index++;
-            return;
+            samples_index += 1;
         }
-        samples_index = 0;
+        else {
+            buffer_filled = 1; // ready for dsp
+            samples_index = 0;
+        }
     }
 
 #endif // USE_ADC
 }
 
+
 // Triggered by ADC timer
 void Timer0IntHandler(void) {
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
-    ADCIntClear(ADC0_BASE, 1);
+
+    timer_triggers++;
+
+    // trigger ADC
     ADCProcessorTrigger(ADC0_BASE, 1);
 }
 
-// ADC handler
+
+// ADC handler - not used
 void ADC0_Handler(void)
 {
 #ifdef USE_ADC
 
     ADCIntClear(ADC0_BASE, 1);
 
-    //halt until ADC is ready to be serviced
-    while(!ADCIntStatus(ADC0_BASE, 1, false)){}
-
-    //used for transferring the stored sampled value
     uint32_t immediate_value;
 
-    //transfer data into 32 bit buffer
     ADCSequenceDataGet(ADC0_BASE, 1, &immediate_value);
 
     //convert unsigned 32bit to signed 16bit
@@ -204,9 +228,10 @@ void ADC0_Handler(void)
     if (samples_index < BUF_SIZE)
     {
         samples_index++;
-        return;
     }
-    samples_index = 0;
+    else {
+        samples_index = 0;
+    }
 #endif
 }
 
