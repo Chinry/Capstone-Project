@@ -32,9 +32,6 @@
 
 #define num(c) c - 48
 
-void StorateSetup(void);
-
-
 // Storage status code type
 typedef uint8_t status_code_t;
 

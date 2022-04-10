@@ -1,69 +1,17 @@
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <math.h>
-#include <limits.h>
-#include "inc/tm4c123gh6pm.h"
-#include "inc/hw_memmap.h"
-#include "inc/hw_types.h"
-#include "driverlib/sysctl.h"
-#include "driverlib/gpio.h"
-#include "driverlib/adc.h"
-#include "driverlib/timer.h"
-#include "driverlib/interrupt.h"
-
-
-// Features
-#define USE_ADC
-#define USE_UART
-
-
-// Conditional includes
-#ifdef USE_ADC
-#include "fix_fft.h"
-#endif
-
-#ifdef USE_UART
-#include "connection.h"
-#endif
-
-
-
-// ADC/DSP data
-#ifdef USE_ADC
-
-#define BUF_SIZE 512
-#define SAMP_FREQ 3000
-
-int16_t fr[BUF_SIZE];
-int16_t fi[BUF_SIZE];
-
-uint32_t input_buffer[4];
-int16_t samples[BUF_SIZE];
-uint32_t samples_index;
-uint32_t sample_value;
-
-uint32_t buffer_filled = 0;
-uint32_t timer_triggers = 0;
-
-volatile unsigned short ulADC0Value;
-
-#endif
-
-
 /*
- * plan
- * - Have ADC run on a timer and put values into buffer
- * - fft reupdate always for pitch
+ * main.c - core device execution
  *
- *
- *
+ *  Created on: Apr 4, 2022
+ *      Author: Nate
  */
+
+#include "main.h"
 
 
 int main(void) {
 
-    //configure the system clock at which system will run
+    // configure the system clock at which system will run
     SysCtlClockSet(SYSCTL_SYSDIV_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
 
 #ifdef RUN_TEST
@@ -82,34 +30,73 @@ int main(void) {
 
 #ifdef USE_ADC
 
+    // CONFIGURE DSP PROCESS STATE ============================================
+    // Set clock loads
+    uint32_t samplingPeriod = SysCtlClockGet() / SAMPLE_FREQ;
+    uint32_t processingPeriod = SysCtlClockGet() / PROCESS_FREQ;
+    uint32_t outputPeriod = SysCtlClockGet() / OUTPUT_FREQ;
+
+    // Initialize counters
+    process_count = 0;
+    sample_count = 0;
+    buffer_filled = 0;
     timer_triggers = 0;
 
-    buffer_filled = 0;
+    // Initialize sample memory
     samples_index = 0;
     sample_value = 0;
 
-    uint32_t ui32Period = SysCtlClockGet() / 8000;
 
-    // CONFIGURE ADC TIMER
+
+    // CONFIGURE SAMPLING AND PROCESSING TIMERS ===============================
     // Enable Timer 0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER2);
 
     // Set as a full width periodic timer
     TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
+    TimerConfigure(TIMER2_BASE, TIMER_CFG_PERIODIC);
 
-    // Set to timer A when using full width, set the load value to 3000
-    TimerLoadSet(TIMER0_BASE, TIMER_A, ui32Period);
+    // Set processing and sampling loads
+    TimerLoadSet(TIMER0_BASE, TIMER_A, processingPeriod);
+    TimerLoadSet(TIMER2_BASE, TIMER_A, samplingPeriod);
 
-    // Timer 0, Timer A, trigger the ADC
-    TimerControlTrigger(TIMER0_BASE, TIMER_A, true);
+    // Timer 0, Timer A, trigger the ADC - using timer interrupt instead
+    //TimerControlTrigger(TIMER0_BASE, TIMER_A, true);
 
     IntEnable(INT_TIMER0A);
+    IntEnable(INT_TIMER2A);
     TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+    TimerIntEnable(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
 
 
 
+    // CONFIGURE OUTPUT TIMER =================================================
+    // Enable Timer 1
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
 
-    //CONFIGURE AUDIO ADC
+    // Periodic
+    TimerConfigure(TIMER1_BASE, TIMER_CFG_PERIODIC);
+
+    // Set timer 1, timer A load
+    TimerLoadSet(TIMER1_BASE, TIMER_A, outputPeriod);
+
+    IntEnable(INT_TIMER1A);
+    TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+
+
+
+    // CONFIGURE PWM
+    SysCtlPWMClockSet(SYSCTL_PWMDIV_64);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM1);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+
+    GPIOPinTypePWM(GPIO_PORTD_BASE, GPIO_PIN_0);
+
+
+
+    //CONFIGURE AUDIO ADC =====================================================
     // Enable ADC0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_ADC0);
 
@@ -132,107 +119,154 @@ int main(void) {
     // Set up sequence 0 to be able to be triggered
     ADCSequenceEnable(ADC0_BASE, 1);
 
-
     // Trigger interrupt from timer
-    //ADCIntEnableEx(ADC0_BASE, ADC_INT_SS0);
+    ADCIntEnable(ADC0_BASE, 1);
 
-    // Starts timer
+    // Starts timers
     TimerEnable(TIMER0_BASE, TIMER_A);
+    TimerEnable(TIMER1_BASE, TIMER_A);
+    TimerEnable(TIMER2_BASE, TIMER_A);
 
     // Master interrupt enable
     IntMasterEnable();
 
-    // Main execution
-    while(1) {
-
-        // wait for ADC
-        while (!ADCIntStatus(ADC0_BASE, 1, false)) {
-
-            // continuous analysis of the buffer
-            // buffer is full and ready to be processed
-            if (buffer_filled) {
-
-                // copy in circular buffer contents to fft buffer
-                int i, j;
-                for (i = 0; i < BUF_SIZE; i++) {
-                    j = i + samples_index;
-                    if (j >= BUF_SIZE) {
-                        j -= BUF_SIZE;
-                    }
-                    fr[i] = samples[j];
-                    fi[i] = 0;
-                }
-
-                fix_fft(fr, fi, 9, 0);
-            }
-        }
-
-        // clear ADC
-        ADCIntClear(ADC0_BASE, 1);
-
-        //uint32_t immediate_value;
-
-        ADCSequenceDataGet(ADC0_BASE, 1, input_buffer);
-        sample_value = (input_buffer[0] + input_buffer[1] + input_buffer[2] + input_buffer[3]) / 4;
-        sample_value = sample_value << 4;
-        samples[samples_index] = SHRT_MIN + (int16_t) sample_value;
-
-//        //convert unsigned 32bit to signed 16bit
-//        int32_t tmp = immediate_value + 0x10000000;
-//        //store into circular buffer
-//        samples[samples_index] = (int16_t)(tmp >> 16);
-
-        // rotate
-        if (samples_index < BUF_SIZE)
-        {
-            samples_index += 1;
-        }
-        else {
-            buffer_filled = 1; // ready for dsp
-            samples_index = 0;
-        }
-    }
-
 #endif // USE_ADC
+
+
+    // Enter main execution loop
+    while(1) {
+#ifdef USE_ADC
+        AwaitADC();
+#endif // USE_ADC
+    }
 }
 
 
-// Triggered by ADC timer
+#ifdef USE_ADC
+void AwaitADC(void) {
+
+    // wait for ADC
+    while (!ADCIntStatus(ADC0_BASE, 1, false)) {}
+
+    // clear ADC
+    ADCIntClear(ADC0_BASE, 1);
+
+    ADCSequenceDataGet(ADC0_BASE, 1, input_buffer);
+    sample_value = (input_buffer[0] + input_buffer[1] + input_buffer[2] + input_buffer[3]) / 4;
+    sample_value = sample_value << 4;
+    samples[samples_index] = SHRT_MIN + (int16_t) sample_value;
+
+    // rotate
+    samples_last_index = samples_index;
+    if (samples_index < BUF_SIZE)
+    {
+        samples_index += 1;
+    }
+    else {
+        buffer_filled = 1; // ready for dsp
+        samples_index = 0;
+    }
+
+    sample_count++;
+}
+
+
+// Process buffer
+void RunDSP(void) {
+
+    // copy in circular buffer contents to fft buffer
+    int i, j;
+    uint32_t rms;
+
+#ifdef ENV_MOVE
+    // envelope is moving, update RMS one value at a time
+    if (env_moving) {
+        if (samples_index != env_last_index) {
+            if ((env_last_index < ENV_SIZE) == 0) {
+                j = env_last_index - ENV_SIZE + BUF_SIZE;
+            }
+            else {
+                j = env_last_index - ENV_SIZE;
+            }
+
+            rms = env_follower_rms * env_follower_rms + ((samples[env_last_index] * samples[env_last_index]) - (samples[j] * samples[j])) / ENV_SIZE;
+            rms = (uint16_t) sqrt((double) rms);
+            env_follower_rms = rms;
+
+            // update latest contributing value to the RMS
+            env_last_index = samples_index;
+        }
+    }
+
+    // compute total envelope over ENV_SIZE subset of buffer
+    else {
+#endif // ENV_MOVE
+        rms = 0;
+        for (i = 0; i < ENV_SIZE; i++) {
+            j = BufferIndex(samples_index - ENV_SIZE);
+            rms += samples[j] * samples[j];
+        }
+        rms /= ENV_SIZE;
+        rms = (uint16_t) sqrt((double) rms);
+        env_follower_rms = rms;
+
+#ifdef ENV_MOVE
+    }
+#endif // ENV_MOVE
+
+    playing = env_follower_rms > PLAYBACK_THRESHOLD;
+
+    // only do DSP if there should be playback
+    if (playing && samples_last_index != samples_index) {
+
+        // snapshot buffer for FFT
+        for (i = 0; i < BUF_SIZE; i++) {
+            fr[i] = BufferValue(j);
+            fi[i] = 0;
+        }
+
+        fix_fft(fr, fi, 9, 0);
+    }
+
+
+    process_count += 1;
+}
+#endif // USE_ADC
+
+
+// Triggered by process timer
 void Timer0IntHandler(void) {
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
 
-    timer_triggers++;
-
-    // trigger ADC
-    ADCProcessorTrigger(ADC0_BASE, 1);
+    // buffer is full and ready to be processed
+    if (buffer_filled) {
+        RunDSP();
+    }
 }
 
 
-// ADC handler - not used
-void ADC0_Handler(void)
-{
-#ifdef USE_ADC
+// Triggered by output timer
+void Timer1IntHandler(void) {
+    TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
 
-    ADCIntClear(ADC0_BASE, 1);
+    // update playback wave
+    if (playing) {
 
-    uint32_t immediate_value;
-
-    ADCSequenceDataGet(ADC0_BASE, 1, &immediate_value);
-
-    //convert unsigned 32bit to signed 16bit
-    int32_t tmp = immediate_value + 0x10000000;
-    //store into circular buffer
-    samples[samples_index] = (int16_t)(tmp >> 16);
-
-    //advance buffer write index
-    if (samples_index < BUF_SIZE)
-    {
-        samples_index++;
     }
+
+    // stop playback
     else {
-        samples_index = 0;
+
     }
-#endif
+}
+
+// Triggered by ADC timer
+void Timer2IntHandler(void) {
+    TimerIntClear(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
+
+    ADCProcessorTrigger(ADC0_BASE, 1);
+
+    timer_triggers++;
 }
 
 
