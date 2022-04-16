@@ -2,7 +2,7 @@
  * storage.h
  *
  *  Created on: Feb 10, 2022
- *      Author: Nate
+ *      Authors: Nate, Nick
  *
  *  Description:
  *      Single-file short library for persisting data

@@ -2,7 +2,7 @@
  * connection.h
  *
  *  Created on: Feb 10, 2022
- *      Author: Nate
+ *      Authors: Nate, Nick
  *
  *  Description:
  *      Handle the UART connection to desktop
