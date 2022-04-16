@@ -50,6 +50,8 @@
 #define PLAYBACK_THRESHOLD 100
 #define ENV_SIZE 4
 
+#define MIDPOINT 1551
+
 // FFT buffers
 int16_t fr[BUF_SIZE];
 int16_t fi[BUF_SIZE];
