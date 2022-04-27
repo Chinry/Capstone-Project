@@ -12,7 +12,7 @@
 int main(void) {
 
     // configure the system clock at which system will run
-    SysCtlClockSet(SYSCTL_SYSDIV_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
+    SysCtlClockSet(SYSCTL_SYSDIV_2_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
 
 #ifdef RUN_TEST
 
@@ -78,13 +78,30 @@ int main(void) {
 
 
 
-    // CONFIGURE PWM
-    SysCtlPWMClockSet(SYSCTL_PWMDIV_64);
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM1);
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+    // CONFIGURE PWM ==========================================================
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
+    while(!(SysCtlPeripheralReady(SYSCTL_PERIPH_PWM0) && SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOB))) {}
 
-    GPIOPinTypePWM(GPIO_PORTD_BASE, GPIO_PIN_0);
+    GPIOPinTypePWM(GPIO_PORTB_BASE, GPIO_PIN_6);
+    GPIOPinConfigure(GPIO_PB6_M0PWM0);
+    SysCtlPWMClockSet(SYSCTL_PWMDIV_64);
+
+    //First two parameters: PWM peripheral base address, use PWM generator 0,
+    //The last parameter is a configuration integer
+    //PWM_GEN_MODE_DOWN: specifies that the counter will start at a load value and count to zero. When it hits zero it will jump back to the load value
+    //OR PWM_GEN_MODE_GEN_SYNC_LOCAL: updates happen only on 0;
+    PWMGenConfigure(PWM0_BASE, PWM_GEN_0, PWM_GEN_MODE_DOWN | PWM_GEN_MODE_GEN_SYNC_LOCAL);
+
+    set_wave(1000, 128);
+
+    //used to start/stop timers
+    // Start the timers in generator 0.
+    PWMGenEnable(PWM0_BASE, PWM_GEN_0);
+
+    //true = enable these bits
+    //false = disable these bits
+    PWMOutputState(PWM0_BASE, PWM_OUT_0_BIT, true);
 
 
 
@@ -250,11 +267,41 @@ void Timer1IntHandler(void) {
     TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
 
     // update playback wave
-    //EnableSignal(playing);
     if (playing) {
-        //UpdateSignal(0, 0);
+
+        // enable signal
+        PWMOutputState(PWM0_BASE, PWM_OUT_0_BIT, true);
+
+        // update signal
+        // set first param (frequency) based on tracked fundamental frequency
+        // set second param (width) based on signal amplitude
+        set_wave(1000, 128);
+    }
+    else {
+        // disable signal
+        PWMOutputState(PWM0_BASE, PWM_OUT_0_BIT, false);
     }
 }
 
 
+// Update the PWM with frequency
+void set_wave(uint32_t freq, uint32_t width /* 0 - 128 , 0: smallest, 128: halfway*/ ) {
+        
+        //Since the clock is divided by 16 (PWM Clock is 5Mhz), 1 step = 200ns
+        //The period is (1/(freq * 4) / (1/5000000)
+        uint32_t period = 5000000 / (freq << 2);
 
+        // On time is (1/2) * (width/128) * period
+        uint32_t ontime = (width * period) >> 8;
+
+
+        //this will be used to set the period
+        //PWM_GEN_0: use generator 0 as before
+        //the last parameter is the number of clock ticks that will be used to determine the load value
+        PWMGenPeriodSet(PWM0_BASE, PWM_GEN_0, period);
+
+
+        //set to output 0
+        //last is the number of clock ticks of the positive portion of the wave.
+        PWMPulseWidthSet(PWM0_BASE, PWM_OUT_0, ontime);
+}

@@ -88,6 +88,8 @@ uint32_t process_count = 0;
 void AwaitADC(void);
 void RunDSP(void);
 
+void set_wave(uint32_t freq, uint32_t width);
+
 inline uint32_t BufferIndex(int32_t index) {
     index += samples_index;
     while (index < 0) {
