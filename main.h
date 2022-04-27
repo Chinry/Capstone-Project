@@ -29,8 +29,8 @@
 
 // Features
 #define USE_UART
-#define USE_PWM_TEST
-//#define USE_BUTTON_CALIBRATE
+#define USE_BUTTON_CALIBRATE
+#define USE_PLAYBACK_LED
 
 // Modes
 #define WINDOW_ON
@@ -55,7 +55,7 @@
 #define SAMPLE_FREQ 3000
 
 // Update output signal rate
-#define OUTPUT_FREQ 4000
+#define OUTPUT_FREQ 1000
 
 
 // ENVELOPE ===================================================================
@@ -85,21 +85,12 @@
 // ============================================================================
 
 // PEAKS ======================================================================
-#define LOCAL_MAX_SIZE 1 // number of maxima to store, ordered
+#define LOCAL_MAX_SIZE 4 // number of maxima to store, ordered
 #define LOCAL_THRESHOLD 100
 #define LOCAL_WIDTH 1 // look for local maxima over averaged values with this width
 
 #define BUF_ITER_MAX (BUF_SIZE >> 1) - LOCAL_WIDTH + 1
 // ============================================================================
-
-
-
-// For testing...
-#ifdef USE_PWM_TEST
-#define PWM_FREQUENCY 80
-volatile uint32_t pwm_load;
-volatile uint32_t pwm_adjust = 0;
-#endif
 
 
 // FFT buffers
@@ -151,12 +142,19 @@ uint32_t timer_triggers = 0;
 uint32_t sample_count = 0;
 uint32_t process_count = 0;
 
+// calibration
+bool calibrating = false;
+uint32_t midpoint = MIDPOINT;
+
 // functions
 void AwaitADC(void);
 void RunDSP(void);
 void LoadWindow(void);
 
+void UpdateOuput(void);
 void SetWave(uint32_t freq, uint32_t width);
+
+void Calibrate(void);
 
 inline uint32_t BufferIndex(int32_t index) {
     index += samples_index;

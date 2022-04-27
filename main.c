@@ -166,6 +166,14 @@ int main(void) {
     // Enter main execution loop
     while(1) {
 
+        // calibrating = GPIO button read
+
+        // calibrate button down - skip DSP
+        if (calibrating) {
+            Calibrate();
+            continue;
+        }
+
         // check full buffer and state
         if (! buffer_filled || ! playing) {
             continue;
@@ -185,11 +193,11 @@ int main(void) {
 #ifdef WINDOW_ON
             if (i < WINDOW_SIZE) {
                 mult = window.window_d[WINDOW_SIZE - i];
-                fr[i] = (int16_t) (mult * samples[j] + (1 - mult) * MIDPOINT);
+                fr[i] = (int16_t) (mult * samples[j] + (1 - mult) * midpoint);
             }
             else if (i >= BUF_SIZE - WINDOW_SIZE) {
                 mult = window.window_d[WINDOW_SIZE + i - BUF_SIZE + 1];
-                fr[i] = (int16_t) (mult * samples[j] + (1 - mult) * MIDPOINT);
+                fr[i] = (int16_t) (mult * samples[j] + (1 - mult) * midpoint);
             }
             else {
                 fr[i] = samples[j];
@@ -214,8 +222,39 @@ int main(void) {
         // bulk of dsp work
         // this can be interrupted, snapshot is already taken
         RunDSP();
+
+        // trigger PWM updates here if we want updates only on new data
+        //UpdateOuput();
     }
 }
+
+
+// Calibrate the base signal
+void Calibrate(void) {
+
+    // disable interrupts while snapshot is made
+    IntDisable(INT_TIMER0A);
+    ADCIntDisable(ADC0_BASE, 1);
+
+    int i, j;
+    uint32_t acc;
+    i = 0;
+    j = samples_index; // head of ring buffer
+    for (; i < BUF_SIZE; i++) {
+        acc += samples[j];
+        j++;
+        if (j == BUF_SIZE) {
+            j = 0;
+        }
+    }
+
+    midpoint = acc / BUF_SIZE;
+
+    // re-enable interrupts
+    IntEnable(INT_TIMER0A);
+    ADCIntEnable(ADC0_BASE, 1);
+}
+
 
 // Process buffer
 void RunDSP(void) {
@@ -276,6 +315,7 @@ void RunDSP(void) {
 }
 
 
+// ADC interrupt routine
 void AwaitADC(void) {
 
     // wait for ADC
@@ -308,11 +348,11 @@ void AwaitADC(void) {
     sample_count++;
 
     uint16_t amp1;
-    if (sample_value < MIDPOINT) {
-        amp1 = MIDPOINT - sample_value;
+    if (sample_value < midpoint) {
+        amp1 = midpoint - sample_value;
     }
     else {
-        amp1 = sample_value - MIDPOINT;
+        amp1 = sample_value - midpoint;
     }
 
     // envelope accumulator isn't full yet
@@ -369,18 +409,49 @@ void Timer0IntHandler(void) {
 }
 
 
-// Triggered by output timer
+// Triggered by output timer (if we want periodic wave updates)
 void Timer1IntHandler(void) {
     TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
-#ifdef USE_PWM_TEST
 
-    if(GPIOPinRead(GPIO_PORTF_BASE, GPIO_PIN_0) == 0x00) {
+    // Update the PWM wave
+    UpdateOuput();
+}
 
+
+// Update the PWM with frequency
+void SetWave(uint32_t freq, uint32_t width /* 0 - 128 , 0: smallest, 128: halfway*/ ) {
+    
+    //Since the clock is divided by 16 (PWM Clock is 5Mhz), 1 step = 200ns
+    //The period is (1/(freq * 4) / (1/5000000)
+    uint32_t period = 5000000 / (freq << 2);
+
+    // On time is (1/2) * (width/128) * period
+    uint32_t ontime = (width * period) >> 8;
+
+    //this will be used to set the period
+    //PWM_GEN_0: use generator 0 as before
+    //the last parameter is the number of clock ticks that will be used to determine the load value
+    PWMGenPeriodSet(PWM0_BASE, PWM_GEN_0, period);
+
+
+    //set to output 0
+    //last is the number of clock ticks of the positive portion of the wave.
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_0, ontime);
+}
+
+
+// Update the PWM
+void UpdateOuput() {
+    if (calibrating) {
+        GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3, 0x04);
+        return;
     }
 
-#endif // USE_PWM_TEST
-    // update playback wave
     if (playing) {
+
+#ifdef USE_PLAYBACK_LED
+        GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3, 0x02);
+#endif
 
         // enable signal
         PWMOutputState(PWM0_BASE, PWM_OUT_0_BIT, true);
@@ -391,31 +462,14 @@ void Timer1IntHandler(void) {
         SetWave(1000, 128);
     }
     else {
+
+#ifdef USE_PLAYBACK_LED
+        GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3, 0x00);
+#endif
+
         // disable signal
         PWMOutputState(PWM0_BASE, PWM_OUT_0_BIT, false);
     }
-}
-
-
-// Update the PWM with frequency
-void SetWave(uint32_t freq, uint32_t width /* 0 - 128 , 0: smallest, 128: halfway*/ ) {
-        
-        //Since the clock is divided by 16 (PWM Clock is 5Mhz), 1 step = 200ns
-        //The period is (1/(freq * 4) / (1/5000000)
-        uint32_t period = 5000000 / (freq << 2);
-
-        // On time is (1/2) * (width/128) * period
-        uint32_t ontime = (width * period) >> 8;
-
-        //this will be used to set the period
-        //PWM_GEN_0: use generator 0 as before
-        //the last parameter is the number of clock ticks that will be used to determine the load value
-        PWMGenPeriodSet(PWM0_BASE, PWM_GEN_0, period);
-
-
-        //set to output 0
-        //last is the number of clock ticks of the positive portion of the wave.
-        PWMPulseWidthSet(PWM0_BASE, PWM_OUT_0, ontime);
 }
 
 
