@@ -28,12 +28,17 @@
 
 
 // Features
-#define USE_UART
+//#define USE_UART
 #define USE_BUTTON_CALIBRATE
 #define USE_PLAYBACK_LED
 
 // Modes
 #define WINDOW_ON
+#define FIXED_WIDTH_ON
+
+//#define MODULATE_OCTAVES_ON // modulate the octave
+
+#define PITCH_REPEAT
 
 
 #include "fix_fft.h"
@@ -55,7 +60,7 @@
 #define SAMPLE_FREQ 3000
 
 // Update output signal rate
-#define OUTPUT_FREQ 1000
+#define OUTPUT_FREQ 30
 
 
 // ENVELOPE ===================================================================
@@ -67,10 +72,13 @@
 #define ENV_WEIGHT 2
 
 // Distance between MIDPOINT and envelope average required for playback - main sensitivity factor
-#define PLAYBACK_THRESHOLD 150
+#define PLAYBACK_THRESHOLD 160
+#define PLAYBACK_MIN_AMP 0 // minimum PWM width
+#define PLAYBACK_SCALE_AMP 0.2 // scale envelope avg -> PWM width
+#define PLAYBACK_MAX_WIDTH 128 // maximum PWM width (half of period)
 
 // Time in terms of sample frequency where playback should sustain, even after the envelope falls below the threshold
-#define PLAYBACK_KEEPALIVE 1000 // 1000 = 1/3 of a second (PLAYBACK_KEEPALIVE / SAMPLE_FREQ)
+#define PLAYBACK_KEEPALIVE 1000 // 1000 = 1/6 of a second (PLAYBACK_KEEPALIVE / SAMPLE_FREQ)
 
 // This value represents the bit-shifted ADC reading at "0" input. Might have to be re-calibrated over time
 #define MIDPOINT 25000
@@ -84,13 +92,32 @@
 #define WINDOW_GAUSS_A 6.0
 // ============================================================================
 
+
 // PEAKS ======================================================================
 #define LOCAL_MAX_SIZE 4 // number of maxima to store, ordered
-#define LOCAL_THRESHOLD 100
+#define LOCAL_THRESHOLD 200
 #define LOCAL_WIDTH 1 // look for local maxima over averaged values with this width
 
 #define BUF_ITER_MAX (BUF_SIZE >> 1) - LOCAL_WIDTH + 1
 // ============================================================================
+
+
+// PITCH TRACKING =============================================================
+#ifdef PITCH_REPEAT
+#define TRACK_REPEATS 2
+#define TRACK_RANGE 0
+#endif
+
+#ifdef MODULATE_OCTAVES_ON
+#define OCTAVE_RANGE 2
+#endif
+// ============================================================================
+
+#define INDEX_TO_FREQ 11.53
+
+// harmony fraction
+#define FREQ_NUM 1
+#define FREQ_DEN 2
 
 
 // FFT buffers
@@ -115,7 +142,15 @@ uint16_t local_max_idx[LOCAL_MAX_SIZE];
 uint16_t* local_smallest = &local_max[0];
 
 // frequency
+uint16_t freq_f_target = 0;
+uint16_t freq_f_acc = 0;
+uint16_t freq_f_last = 0;
 uint16_t freq_f = 0;
+
+#ifdef MODULATE_OCTAVE_ON
+uint16_t octave_dir = 0;
+uint16_t octave_mult = OCTAVE_RANGE;
+#endif
 
 // circular buffer next write index
 uint32_t samples_index = 0;

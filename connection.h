@@ -14,12 +14,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+
+#define RAW_MESSAGES true
+
+#define CMD_LEN 64
+
+
 void UARTSetup();
-
 void UARTIntHandler(void);
-
-
-
 void ConnectionTest(void);
 
 #endif /* UART_H_ */

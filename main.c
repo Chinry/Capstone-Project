@@ -104,7 +104,7 @@ int main(void) {
     // CONFIGURE PWM ==========================================================
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
     SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
-    while(!(SysCtlPeripheralReady(SYSCTL_PERIPH_PWM0) && SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOB))) {}
+    while ( !(SysCtlPeripheralReady(SYSCTL_PERIPH_PWM0) && SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOB))) {}
 
     GPIOPinTypePWM(GPIO_PORTB_BASE, GPIO_PIN_6);
     GPIOPinConfigure(GPIO_PB6_M0PWM0);
@@ -186,11 +186,11 @@ int main(void) {
 
         // snapshot buffer for FFT
         int i, j;
-        double mult;
         i = 0;
         j = samples_index; // head of ring buffer
         for (; i < BUF_SIZE; i++) {
 #ifdef WINDOW_ON
+            double mult;
             if (i < WINDOW_SIZE) {
                 mult = window.window_d[WINDOW_SIZE - i];
                 fr[i] = (int16_t) (mult * samples[j] + (1 - mult) * midpoint);
@@ -309,7 +309,48 @@ void RunDSP(void) {
         }
     }
 
-    freq_f = local_max_idx[0];
+    // consider new peaks
+    if (local_max[0] > 0) {
+
+#ifdef PITCH_REPEAT
+
+        // acquire new pitch target
+        if (freq_f_target == 0) {
+            freq_f_target = local_max_idx[0];
+            freq_f_acc = 1;
+        }
+
+        // evaluate closeness to pitch target
+        else {
+            if (local_max_idx[0] >= freq_f_target - TRACK_RANGE && local_max_idx[0] <= freq_f_target + TRACK_RANGE) {
+                freq_f_target = (freq_f_target + local_max_idx[0]) >> 1;
+                freq_f_acc += 1;
+            }
+
+            // failed, reset with new pitch
+            else {
+                freq_f_target = local_max_idx[0];
+                freq_f_acc = 1;
+            }
+        }
+
+        // reach the desired repeats, target is the new pitch
+        if (freq_f_acc >= TRACK_REPEATS) {
+            freq_f = freq_f_target;
+            freq_f_target = 0;
+            freq_f_acc = 0;
+        }
+
+#else
+        freq_f = local_max_idx[0];
+#endif
+    }
+
+
+    // maintain last frequency, if we lose the pitch keep what we had
+    if (freq_f > 0) {
+        freq_f_last = freq_f;
+    }
 
     process_count += 1;
 }
@@ -387,6 +428,10 @@ void AwaitADC(void) {
     else {
         if (env_keepalive == 0) {
             playing = false;
+            freq_f = 0;
+            freq_f_last = 0;
+            freq_f_target = 0;
+            freq_f_acc = 0;
         }
         else {
             env_keepalive -= 1;
@@ -459,7 +504,46 @@ void UpdateOuput() {
         // update signal
         // set first param (frequency) based on tracked fundamental frequency
         // set second param (width) based on signal amplitude
-        SetWave(1000, 128);
+#ifdef FIXED_WIDTH_ON
+        uint16_t width = PLAYBACK_MAX_WIDTH;
+#else
+        uint16_t width = PLAYBACK_MIN_AMP + (env_follower_avg - PLAYBACK_THRESHOLD) * PLAYBACK_SCALE_AMP;
+        if (width > PLAYBACK_MAX_WIDTH) {
+            width = PLAYBACK_MAX_WIDTH;
+        }
+#endif
+
+        uint16_t freq_use = freq_f;
+
+        // modulation
+#ifdef MODULATE_OCTAVES_ON
+        if (octave_mult > OCTAVE_RANGE) {
+            freq_use *= 1 + (octave_mult - OCTAVE_RANGE);
+        }
+        else if (octave_mult < OCTAVE_RANGE) {
+            freq_use /= 1 + (OCTAVE_RANGE - octave_mult);
+        }
+
+        if (octave_dir == 0) {
+            octave_mult += 1;
+            if (octave_mult == OCTAVE_RANGE << 1) {
+                octave_dir = 1;
+            }
+        }
+        else if (octave_dir == 1){
+            octave_mult -= 1;
+            if (octave_mult == 0) {
+                octave_dir = 0;
+            }
+        }
+#endif
+
+        // decay
+        if (env_keepalive < PLAYBACK_KEEPALIVE && env_keepalive > 0) {
+            width *= ((double) env_keepalive / (double) PLAYBACK_KEEPALIVE);
+        }
+
+        SetWave(freq_use * INDEX_TO_FREQ * FREQ_NUM / FREQ_DEN, width);
     }
     else {
 
@@ -477,7 +561,7 @@ void UpdateOuput() {
 void LoadWindow(void) {
     EEPROMRead(window.window_uint, WINDOW_ADDR, sizeof(window.window_uint));
 
-    if (window.window_uint[0] != WINDOW_FLAG) {
+    if (window.window_uint[0] != WINDOW_FLAG || true) {
         EEPROMMassErase();
 
         // calculate gaussian

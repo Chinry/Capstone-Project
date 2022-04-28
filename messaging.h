@@ -72,6 +72,9 @@ void StatMessagePut(stat_message_t);
 void StringPut(const char* str, const uint32_t len) {
     uint32_t strIdx;
     for(strIdx = 0; strIdx < len; strIdx++) {
+        if (str[strIdx] == '\0') {
+            break;
+        }
         UARTCharPut(UART0_BASE, str[strIdx]);
     }
 }

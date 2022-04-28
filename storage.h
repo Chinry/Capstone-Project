@@ -42,8 +42,14 @@ typedef struct {
     uint8_t intervalN;
     uint8_t intervalD;
 
-    // Wave type
-    uint8_t waveType;
+    // Sustain length
+    uint16_t sustain;
+
+    // Decay on/off
+    uint8_t decay;
+
+    // Modulate amount, 0=off
+    uint8_t modulate;
 
 } config_store_t;
 
@@ -73,7 +79,9 @@ config_store_t config_store;
 config_store_t config_default = {
     .intervalN      = 1,
     .intervalD      = 1,
-    .waveType       = WAVE_SQUARE
+    .sustain        = 0,
+    .decay          = 1,
+    .modulate       = 0
 };
 
 
@@ -126,7 +134,7 @@ status_code_t UpdateStore(const char* keyval) {
 
 
     // Seek value substring
-    int32_t endIdx = GetStrUntil(keyval, eqIdx + 1, ' ');
+    int32_t endIdx = GetStrUntil(keyval, eqIdx + 1, '\0');
     if (eqIdx < 0) return STATUS_PARAM_BAD_FORMAT;
     endIdx -= eqIdx + 1;
 
@@ -138,7 +146,6 @@ status_code_t UpdateStore(const char* keyval) {
 
     // Find a handler
     if (strcmp(param, PARAM_INTERVAL) == 0) return ParamIntervalUpdateHandler(val);
-    if (strcmp(param, PARAM_WAVE) == 0) return ParamWaveUpdateHandler(val);
 
     // Param not found
     return STATUS_PARAM_NOT_FOUND;
@@ -165,25 +172,6 @@ status_code_t ParamIntervalUpdateHandler(const char* val) {
 
     config_store.intervalN = num;
     config_store.intervalD = den;
-
-    return STATUS_PARAM_UPDATE_SUCCESS;
-}
-
-// Wave param update handler
-status_code_t ParamWaveUpdateHandler(const char* val) {
-
-    char* c = (char*) *(&val);
-
-    uint32_t waveNum;
-
-    if (! GetNumUntil(c, &waveNum, ' ')) return STATUS_PARAM_UPDATE_FAIL;
-
-    if (waveNum < WAVE_TYPE_COUNT) {
-        config_store.waveType = waveNum;
-    }
-    else {
-        return STATUS_PARAM_UPDATE_FAIL;
-    }
 
     return STATUS_PARAM_UPDATE_SUCCESS;
 }
